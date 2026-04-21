@@ -57,9 +57,6 @@ module soc_top
   input  ibex_mubi_t  fetch_enable_i,
 
   // ── Interrupts ────────────────────────────────────────────────────────────
-  input  logic        irq_software_i,
-  input  logic        irq_timer_i,
-  input  logic        irq_external_i,
   input  logic [14:0] irq_fast_i,
   input  logic        irq_nm_i,
 
@@ -146,8 +143,8 @@ module soc_top
   //                 mst port 1  →  UART      (0x4000_0000 – 0x4000_0FFF)
   //
   localparam int unsigned NoSlvPorts  = 1;  // fixed — only Ibex data port
-  localparam int unsigned NoMstPorts  = 2;  // ← PERIPH_ADD_1: +1 per peripheral
-  localparam int unsigned NoAddrRules = 2;  // ← PERIPH_ADD_1: +1 per peripheral
+  localparam int unsigned NoMstPorts  = 3;  // ← PERIPH_ADD_1: +1 per peripheral
+  localparam int unsigned NoAddrRules = 3;  // ← PERIPH_ADD_1: +1 per peripheral
 
   // ==========================================================================
   // Crossbar configuration struct
@@ -199,7 +196,8 @@ module soc_top
   //    [N-1:0] from left, so element [N-1] is written first.)
   //
   localparam rule_t [NoAddrRules-1:0] AddrMap = '{
-    '{idx: 32'd1, start_addr: 32'h0C00_0000, end_addr: 32'h0C30_0000},
+    '{idx: 32'd2, start_addr: 32'h0200_0000, end_addr: 32'h0200_C000}, // CLINT
+    '{idx: 32'd1, start_addr: 32'h0C00_0000, end_addr: 32'h0C30_0000}, //PLIC
     '{idx: 32'd0, start_addr: 32'h1000_0000, end_addr: 32'h1001_0000}  // Data RAM 64KB
     // PERIPH_ADD_2: prepend new rules here (higher index first), e.g.:
     // '{idx: 32'd1, start_addr: 32'h4000_0000, end_addr: 32'h4000_1000}  // UART 4KB
@@ -279,8 +277,8 @@ module soc_top
     .data_err_i         (data_err),
 
     // ── Interrupts ─────────────────────────────────────────────────────────
-    .irq_software_i,
-    .irq_timer_i,
+    .irq_software_i(clint_msip),
+    .irq_timer_i(clint_mtip),
     .irq_external_i(plic_irq_o),
     .irq_fast_i,
     .irq_nm_i,
@@ -607,6 +605,37 @@ plic_top #(
   .irq_id_o    (),              // not needed unless you do fast claim in firmware
   .req_i       (plic_reg_req),
   .resp_o      (plic_reg_rsp)
+);
+
+  //CLINT
+  logic clint_mtip;   
+  logic clint_msip;
+
+clint_axilite #(.AW(32), .DW(32)) u_clint (
+  .clk_i, .rst_ni,
+
+  // AXI-Lite slave ← from xbar master port 2
+  .s_axi_awaddr  (xbar_mst_req[2].aw.addr),
+  .s_axi_awvalid (xbar_mst_req[2].aw_valid),
+  .s_axi_awready (xbar_mst_resp[2].aw_ready),
+  .s_axi_wdata   (xbar_mst_req[2].w.data),
+  .s_axi_wstrb   (xbar_mst_req[2].w.strb),
+  .s_axi_wvalid  (xbar_mst_req[2].w_valid),
+  .s_axi_wready  (xbar_mst_resp[2].w_ready),
+  .s_axi_bresp   (xbar_mst_resp[2].b.resp),
+  .s_axi_bvalid  (xbar_mst_resp[2].b_valid),
+  .s_axi_bready  (xbar_mst_req[2].b_ready),
+  .s_axi_araddr  (xbar_mst_req[2].ar.addr),
+  .s_axi_arvalid (xbar_mst_req[2].ar_valid),
+  .s_axi_arready (xbar_mst_resp[2].ar_ready),
+  .s_axi_rdata   (xbar_mst_resp[2].r.data),
+  .s_axi_rresp   (xbar_mst_resp[2].r.resp),
+  .s_axi_rvalid  (xbar_mst_resp[2].r_valid),
+  .s_axi_rready  (xbar_mst_req[2].r_ready),
+
+  // Interrupt outputs → Ibex
+  .msip_o (clint_msip),
+  .mtip_o (clint_mtip)
 );
 
 endmodule
